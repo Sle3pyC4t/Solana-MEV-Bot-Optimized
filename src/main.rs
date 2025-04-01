@@ -137,6 +137,10 @@ async fn main() -> Result<()> {
     ];
 
     dotenv::dotenv().ok();
+    // make dir `logs` if not exists
+    if !Path::new("logs").exists() {
+        create_dir_all("logs").unwrap();
+    }
     setup_logger().unwrap();
 
     info!("Starting MEV_Bot_Solana");
@@ -206,10 +210,11 @@ async fn main() -> Result<()> {
 
     if massive_strategie {
         info!("🏊 Launch pools fetching infos...");
-        let dexs = load_all_pools(fetch_new_pools).await;
         
         // 检查所有DEX的缓存文件是否为空，如果是则异步获取数据
-        let check_and_fetch_cache = async {
+        let cache_updated = async {
+            let mut updated = false;
+            
             // 检查Raydium CLMM缓存
             let raydium_clmm_cache = "src/markets/cache/raydiumclmm-markets.json";
             let data = std::fs::read_to_string(raydium_clmm_cache).unwrap_or_default();
@@ -217,6 +222,8 @@ async fn main() -> Result<()> {
                 info!("Raydium CLMM cache is empty, fetching data...");
                 if let Err(e) = fetch_data_raydium_clmm().await {
                     info!("Failed to fetch Raydium CLMM data: {}", e);
+                } else {
+                    updated = true;
                 }
             }
 
@@ -227,6 +234,8 @@ async fn main() -> Result<()> {
                 info!("Orca cache is empty, fetching data...");
                 if let Err(e) = fetch_data_orca().await {
                     info!("Failed to fetch Orca data: {}", e);
+                } else {
+                    updated = true;
                 }
             }
 
@@ -237,6 +246,8 @@ async fn main() -> Result<()> {
                 info!("Orca Whirpools cache is empty, fetching data...");
                 if let Err(e) = fetch_data_orca_whirpools().await {
                     info!("Failed to fetch Orca Whirpools data: {}", e);
+                } else {
+                    updated = true;
                 }
             }
 
@@ -247,6 +258,8 @@ async fn main() -> Result<()> {
                 info!("Raydium cache is empty, fetching data...");
                 if let Err(e) = fetch_data_raydium().await {
                     info!("Failed to fetch Raydium data: {}", e);
+                } else {
+                    updated = true;
                 }
             }
 
@@ -257,17 +270,17 @@ async fn main() -> Result<()> {
                 info!("Meteora cache is empty, fetching data...");
                 if let Err(e) = fetch_data_meteora().await {
                     info!("Failed to fetch Meteora data: {}", e);
+                } else {
+                    updated = true;
                 }
             }
-
-            // 如果有任何数据被更新，重新加载池数据
-            info!("Reloading pools with cached data...");
-            let dexs = load_all_pools(false).await;
-            dexs
+            
+            updated || fetch_new_pools
         };
 
-        // 执行缓存检查和获取
-        let dexs = check_and_fetch_cache.await;
+        // 只加载一次池数据
+        let should_fetch = fetch_new_pools || cache_updated.await;
+        let dexs = load_all_pools(should_fetch).await;
         
         info!("🏊 {} Dexs are loaded", dexs.len());
         

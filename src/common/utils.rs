@@ -54,7 +54,7 @@ pub fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .chain(fern::log_file("logs\\program.log")?)
+        .chain(fern::log_file("logs/program.log")?)
         .level(log::LevelFilter::Error)
         .level_for(PROJECT_NAME, LevelFilter::Info);
     //Errors logs
@@ -69,7 +69,7 @@ pub fn setup_logger() -> Result<(), fern::InitError> {
                 message
             ))
         })
-        .chain(fern::log_file("logs\\errors.log")?)
+        .chain(fern::log_file("logs/errors.log")?)
         .level(log::LevelFilter::Error);
 
     base_config
