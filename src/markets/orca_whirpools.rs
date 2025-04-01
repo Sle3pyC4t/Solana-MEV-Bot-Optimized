@@ -35,7 +35,33 @@ impl OrcaDexWhirpools {
 
         let mut pools_vec = Vec::new();
         
-        let data = fs::read_to_string("src\\markets\\cache\\orca_whirpools-markets.json").expect("Error reading file");
+        // Check if cache directory exists, if not create it
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let cache_file = "src/markets/cache/orca_whirpools-markets.json";
+        
+        // For synchronous context, always read the existing file or create an empty one if it doesn't exist
+        let data = if !std::path::Path::new(cache_file).exists() {
+            info!("Cache file not found, creating empty cache file. Will be populated on next run.");
+            // Create an empty Root structure
+            let empty_root = Root { whirlpools: Vec::new(), has_more: false };
+            let empty_json = serde_json::to_string(&empty_root).expect("Failed to serialize empty root");
+            
+            // Write to file
+            let file = File::create(cache_file).expect("Failed to create cache file");
+            let mut writer = std::io::BufWriter::new(file);
+            writer.write_all(empty_json.as_bytes()).expect("Failed to write to cache file");
+            writer.flush().expect("Failed to flush writer");
+            
+            empty_json
+        } else {
+            fs::read_to_string(cache_file).expect("Error reading file")
+        };
+        
         let json_value: Root = serde_json::from_str(&data).unwrap();
 
         // println!("JSON Pools: {:?}", json_value.whirlpools);
@@ -167,13 +193,20 @@ pub async fn fetch_new_orca_whirpools(rpc_client: &RpcClient, token: String, on_
 
 pub async fn fetch_data_orca_whirpools() -> Result<(), Box<dyn std::error::Error>> {
     let response = get("https://api.mainnet.orca.so/v1/whirlpool/list").await?;
-    // info!("response: {:?}", response);
-    // info!("response-status: {:?}", response.status().is_success());
+    
     if response.status().is_success() {
-        let json: Root = serde_json::from_str(&response.text().await?)?;        
-        // info!("json: {:?}", json);
-        let mut file = File::create("src\\markets\\cache\\orca_whirpools-markets.json")?;
-        file.write_all(serde_json::to_string(&json)?.as_bytes())?;
+        // Ensure cache directory exists
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let json: Root = serde_json::from_str(&response.text().await?)?;
+        let file = File::create("src/markets/cache/orca_whirpools-markets.json")?;
+        let mut writer = std::io::BufWriter::new(file);
+        writer.write_all(serde_json::to_string(&json)?.as_bytes())?;
+        writer.flush()?;
         info!("Data written to 'orca_whirpools-markets.json' successfully.");
     } else {
         error!("Fetch of 'orca_whirpools-markets.json' not successful: {}", response.status());

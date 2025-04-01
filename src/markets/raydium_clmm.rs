@@ -28,8 +28,34 @@ impl RaydiumClmmDEX {
 
         let mut pools_vec = Vec::new();
         
-        let data = fs::read_to_string("src\\markets\\cache\\raydiumclmm-markets.json").expect("Error reading file");
-        let json_value: Root  = serde_json::from_str(&data).unwrap();
+        // Check if cache directory exists, if not create it
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let cache_file = "src/markets/cache/raydiumclmm-markets.json";
+        
+        // For synchronous context, always read the existing file or create an empty one if it doesn't exist
+        let data = if !std::path::Path::new(cache_file).exists() {
+            info!("Cache file not found, creating empty cache file. Will be populated on next run.");
+            // Create an empty Root structure
+            let empty_root = Root { data: Vec::new() };
+            let empty_json = serde_json::to_string(&empty_root).expect("Failed to serialize empty root");
+            
+            // Write to file
+            let file = File::create(cache_file).expect("Failed to create cache file");
+            let mut writer = std::io::BufWriter::new(file);
+            writer.write_all(empty_json.as_bytes()).expect("Failed to write to cache file");
+            writer.flush().expect("Failed to flush writer");
+            
+            empty_json
+        } else {
+            fs::read_to_string(cache_file).expect("Error reading file")
+        };
+        
+        let json_value: Root = serde_json::from_str(&data).unwrap();
 
         for pool in json_value.data.clone() {
             let item: PoolItem = PoolItem {
@@ -70,15 +96,47 @@ impl RaydiumClmmDEX {
     }
   }
 
+pub fn fetch_data_sync_raydium_clmm() -> Result<(), Box<dyn std::error::Error>> {
+    // Use reqwest's blocking API instead of async
+    let client = reqwest::blocking::Client::new();
+    let response = client.get("https://api.raydium.io/v2/ammV3/ammPools").send()?;
+    
+    if response.status().is_success() {
+        // Ensure cache directory exists
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let json: Root = serde_json::from_str(&response.text()?)?;
+        let file = File::create("src/markets/cache/raydiumclmm-markets.json")?;
+        let mut writer = std::io::BufWriter::new(file);
+        writer.write_all(serde_json::to_string(&json)?.as_bytes())?;
+        writer.flush()?;
+        info!("Data written to 'raydiumclmm-markets.json' successfully.");
+    } else {
+        error!("Fetch of 'raydiumclmm-markets.json' not successful: {}", response.status());
+    }
+    Ok(())
+}
+
 pub async fn fetch_data_raydium_clmm() -> Result<(), Box<dyn std::error::Error>> {
     let response = get("https://api.raydium.io/v2/ammV3/ammPools").await?;
-    // info!("response: {:?}", response);
-    // info!("response-status: {:?}", response.status().is_success());
+    
     if response.status().is_success() {
-        let json: Root = serde_json::from_str(&response.text().await?)?;        
-        // info!("json: {:?}", json);
-        let mut file = File::create("src\\markets\\cache\\raydiumclmm-markets.json")?;
-        file.write_all(serde_json::to_string(&json)?.as_bytes())?;
+        // Ensure cache directory exists
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let json: Root = serde_json::from_str(&response.text().await?)?;
+        let file = File::create("src/markets/cache/raydiumclmm-markets.json")?;
+        let mut writer = std::io::BufWriter::new(file);
+        writer.write_all(serde_json::to_string(&json)?.as_bytes())?;
+        writer.flush()?;
         info!("Data written to 'raydiumclmm-markets.json' successfully.");
     } else {
         error!("Fetch of 'raydiumclmm-markets.json' not successful: {}", response.status());

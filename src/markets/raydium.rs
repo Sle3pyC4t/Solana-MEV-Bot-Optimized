@@ -35,8 +35,34 @@ impl RaydiumDEX {
 
         let mut pools_vec = Vec::new();
         
-        let data = fs::read_to_string("src\\markets\\cache\\raydium-markets.json").expect("Error reading file");
-        let json_value: Root  = serde_json::from_str(&data).unwrap();
+        // Check if cache directory exists, if not create it
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let cache_file = "src/markets/cache/raydium-markets.json";
+        
+        // For synchronous context, always read the existing file or create an empty one if it doesn't exist
+        let data = if !std::path::Path::new(cache_file).exists() {
+            info!("Cache file not found, creating empty cache file. Will be populated on next run.");
+            // Create an empty Root structure (Vec<RaydiumPool>)
+            let empty_root: Vec<RaydiumPool> = Vec::new();
+            let empty_json = serde_json::to_string(&empty_root).expect("Failed to serialize empty root");
+            
+            // Write to file
+            let file = File::create(cache_file).expect("Failed to create cache file");
+            let mut writer = std::io::BufWriter::new(file);
+            writer.write_all(empty_json.as_bytes()).expect("Failed to write to cache file");
+            writer.flush().expect("Failed to flush writer");
+            
+            empty_json
+        } else {
+            fs::read_to_string(cache_file).expect("Error reading file")
+        };
+        
+        let json_value: Root = serde_json::from_str(&data).unwrap();
 
         
         for pool in json_value.clone() {
@@ -81,28 +107,18 @@ impl RaydiumDEX {
     }
   }
 
-// pub async fn fetch_data_raydium() -> Result<(), Box<dyn std::error::Error>> {
-//     let response = get("https://api.raydium.io/v2/main/pairs").await?;
-//     // info!("response: {:?}", response);
-//     // info!("response-status: {:?}", response.status().is_success());
-//     if response.status().is_success() {
-//         let json: Root = serde_json::from_str(&response.text().await?)?;        
-//         // let json = &response.text().await?;        
-//         info!("json: {:?}", json);
-//         let mut file = File::create("src\\markets\\cache\\raydium-markets.json")?;
-//         file.write_all(serde_json::to_string(&json)?.as_bytes())?;
-//         info!("Data written to 'raydium-markets.json' successfully.");
-//     } else {
-//         info!("Fetch of 'raydium-markets.json' not successful: {}", response.status());
-//     }
-//     Ok(())
-// }
 pub async fn fetch_data_raydium() -> Result<(), Box<dyn std::error::Error>> {
     let response = get("https://api.raydium.io/v2/main/pairs").await?;
-    // info!("response: {:?}", response);
-    // info!("response-status: {:?}", response.status().is_success());
+    
     if response.status().is_success() {
         let data = response.text().await?;
+        
+        // Ensure cache directory exists
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
         
         match serde_json::from_str::<Root>(&data) {
             Ok(json) => {
@@ -113,7 +129,7 @@ pub async fn fetch_data_raydium() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Data written to 'raydium-markets.json' successfully.");
             }
             Err(e) => {
-                eprintln!("Failed to deserialize JSON: {:?}", e);
+                error!("Failed to deserialize JSON: {:?}", e);
                 // Optionally, save the raw JSON data to inspect it manually
                 // let mut raw_file = File::create("src/markets/cache/raydium-markets-raw.json")?;
                 let result = print_json_segment("src/markets/cache/raydium-markets.json", 21174733 - 1000 as u64, 2000);

@@ -7,7 +7,7 @@ use std::{fs, fs::File};
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use reqwest::get;
-use log::info;
+use log::{info, error};
 use solana_client::rpc_client::RpcClient;
 use solana_client::rpc_config::RpcAccountInfoConfig;
 use solana_program::pubkey::Pubkey;
@@ -30,8 +30,34 @@ impl OrcaDex {
 
         let mut pools_vec = Vec::new();
         
-        let data = fs::read_to_string("src\\markets\\cache\\orca-markets.json").expect("Error reading file");
-        let json_value: HashMap<String, Pool>  = serde_json::from_str(&data).unwrap();
+        // Check if cache directory exists, if not create it
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let cache_file = "src/markets/cache/orca-markets.json";
+        
+        // For synchronous context, always read the existing file or create an empty one if it doesn't exist
+        let data = if !std::path::Path::new(cache_file).exists() {
+            info!("Cache file not found, creating empty cache file. Will be populated on next run.");
+            // Create an empty HashMap
+            let empty_map: HashMap<String, Pool> = HashMap::new();
+            let empty_json = serde_json::to_string(&empty_map).expect("Failed to serialize empty map");
+            
+            // Write to file
+            let file = File::create(cache_file).expect("Failed to create cache file");
+            let mut writer = std::io::BufWriter::new(file);
+            writer.write_all(empty_json.as_bytes()).expect("Failed to write to cache file");
+            writer.flush().expect("Failed to flush writer");
+            
+            empty_json
+        } else {
+            fs::read_to_string(cache_file).expect("Error reading file")
+        };
+        
+        let json_value: HashMap<String, Pool> = serde_json::from_str(&data).unwrap();
 
         // println!("JSON Pools: {:?}", json_value);
 
@@ -101,16 +127,23 @@ impl OrcaDex {
 
 pub async fn fetch_data_orca() -> Result<(), Box<dyn std::error::Error>> {
     let response = get("https://api.orca.so/allPools").await?;
-    // info!("response: {:?}", response);
-    // info!("response-status: {:?}", response.status().is_success());
+    
     if response.status().is_success() {
-        let json: HashMap<String, Pool> = serde_json::from_str(&response.text().await?)?;        
-        // info!("json: {:?}", json);
-        let mut file = File::create("src\\markets\\cache\\orca-markets.json")?;
-        file.write_all(serde_json::to_string(&json)?.as_bytes())?;
+        // Ensure cache directory exists
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let json: HashMap<String, Pool> = serde_json::from_str(&response.text().await?)?;
+        let file = File::create("src/markets/cache/orca-markets.json")?;
+        let mut writer = std::io::BufWriter::new(file);
+        writer.write_all(serde_json::to_string(&json)?.as_bytes())?;
+        writer.flush()?;
         info!("Data written to 'orca-markets.json' successfully.");
     } else {
-        info!("Fetch of 'orca-markets.json' not successful: {}", response.status());
+        error!("Fetch of 'orca-markets.json' not successful: {}", response.status());
     }
     Ok(())
 }

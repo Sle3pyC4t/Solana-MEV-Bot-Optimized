@@ -31,7 +31,33 @@ impl MeteoraDEX {
 
         let mut pools_vec = Vec::new();
         
-        let data = fs::read_to_string("src\\markets\\cache\\meteora-markets.json").expect("Error reading file");
+        // Check if cache directory exists, if not create it
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
+        
+        let cache_file = "src/markets/cache/meteora-markets.json";
+        
+        // For synchronous context, always read the existing file or create an empty one if it doesn't exist
+        let data = if !std::path::Path::new(cache_file).exists() {
+            info!("Cache file not found, creating empty cache file. Will be populated on next run.");
+            // Create an empty Root structure (Vec<MeteoraPool>)
+            let empty_root: Vec<MeteoraPool> = Vec::new();
+            let empty_json = serde_json::to_string(&empty_root).expect("Failed to serialize empty root");
+            
+            // Write to file
+            let file = File::create(cache_file).expect("Failed to create cache file");
+            let mut writer = std::io::BufWriter::new(file);
+            writer.write_all(empty_json.as_bytes()).expect("Failed to write to cache file");
+            writer.flush().expect("Failed to flush writer");
+            
+            empty_json
+        } else {
+            fs::read_to_string(cache_file).expect("Error reading file")
+        };
+        
         let json_value: Root = serde_json::from_str(&data).unwrap();
 
         
@@ -81,10 +107,16 @@ impl MeteoraDEX {
 
 pub async fn fetch_data_meteora() -> Result<(), Box<dyn std::error::Error>> {
     let response = get("https://dlmm-api.meteora.ag/pair/all").await?;
-    // info!("response: {:?}", response);
-    // info!("response-status: {:?}", response.status().is_success());
+    
     if response.status().is_success() {
         let data = response.text().await?;
+        
+        // Ensure cache directory exists
+        let cache_dir = "src/markets/cache";
+        if !std::path::Path::new(cache_dir).exists() {
+            std::fs::create_dir_all(cache_dir).expect("Failed to create cache directory");
+            info!("Created cache directory: {}", cache_dir);
+        }
         
         match serde_json::from_str::<Root>(&data) {
             Ok(json) => {
@@ -95,7 +127,7 @@ pub async fn fetch_data_meteora() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Data written to 'meteora-markets.json' successfully.");
             }
             Err(e) => {
-                eprintln!("Failed to deserialize JSON: {:?}", e);
+                error!("Failed to deserialize JSON: {:?}", e);
                 // Optionally, save the raw JSON data to inspect it manually
                 // let mut raw_file = File::create("src/markets/cache/meteora-markets-raw.json")?;
                 // let mut writer = BufWriter::new(raw_file);
